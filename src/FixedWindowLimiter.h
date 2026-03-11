@@ -1,47 +1,45 @@
 #pragma once
-#include "RateLimiter.h"
+
 #include <unordered_map>
 #include <mutex>
 #include <chrono>
+#include <string>
 
-struct WindowData {
-    long window_start = 0;
-    int count = 0;
-};
-
-class FixedWindowLimiter : public RateLimiter {
+class FixedWindowLimiter {
 
 private:
-    int max_requests;
-    int window_seconds;
+    int maxRequests;
+    int windowSize;
 
-    std::unordered_map<std::string, WindowData> clients;
+    std::unordered_map<std::string, int> requestCount;
+    std::unordered_map<std::string, long> windowStart;
+
     std::mutex mtx;
 
 public:
 
-    FixedWindowLimiter(int maxReq, int windowSec) {
-        max_requests = maxReq;
-        window_seconds = windowSec;
-    }
+    FixedWindowLimiter(int maxReq, int window)
+        : maxRequests(maxReq), windowSize(window) {}
 
-    bool allowRequest(const std::string& client_id) override {
+    bool allowRequest(const std::string& clientId) {
+
+        long now = std::chrono::duration_cast<std::chrono::seconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
 
         std::lock_guard<std::mutex> lock(mtx);
 
-        long now = std::chrono::duration_cast<std::chrono::seconds>(
-            std::chrono::system_clock::now().time_since_epoch()
-        ).count();
+        if (windowStart[clientId] == 0)
+            windowStart[clientId] = now;
 
-        auto &data = clients[client_id];
+        if (now - windowStart[clientId] >= windowSize) {
 
-        if (now - data.window_start >= window_seconds) {
-            data.window_start = now;
-            data.count = 0;
+            windowStart[clientId] = now;
+            requestCount[clientId] = 0;
         }
 
-        if (data.count < max_requests) {
-            data.count++;
+        if (requestCount[clientId] < maxRequests) {
+
+            requestCount[clientId]++;
             return true;
         }
 
